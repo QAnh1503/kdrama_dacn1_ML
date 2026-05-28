@@ -1,0 +1,5 @@
+kdrama-backend/venv/
+KDrama/node_modules/
+__pycache__/
+*.pyc
+.env
