@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 import json
 import psycopg2
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional  
@@ -12,6 +12,12 @@ from typing import List, Optional
 from services.stats_service import get_db_stats # Import hàm từ file mới
 from services.recommend_service import get_recommendations_for_user, update_user_profile # Import 2 hàm xử lý hệ thống khuyến nghị
 import traceback
+
+# from passlib.context import CryptContext
+from fastapi import FastAPI, HTTPException, Depends
+from pydantic import BaseModel, EmailStr
+from sqlalchemy import text
+import bcrypt
 
 # Cấu hình kết nối Postgres
 DATABASE_URL = "postgresql://postgres:123456@localhost:5432/kdrama"
@@ -34,6 +40,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Khởi tạo công cụ mã hóa mật khẩu theo chuẩn bcrypt
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Tạo cấu trúc dữ liệu (Schema) nhận diện từ Frontend gửi lên
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+class LoginInput(BaseModel):
+    email: EmailStr
+    password: str
+
 
 # --- ĐỊNH NGHĨA CÁC HÀM TIỀN XỬ LÝ NLP ---
 def my_tokenizer(text):
@@ -148,166 +168,158 @@ def get_metadata():
 # -------- TẠO API LOGIC DỰ ĐOÁN & SO SÁNH 3 MÔ HÌNH --------
 # @app.post("/predict")
 # async def predict_kdrama(data: MovieInput):
-#     # 1. Chuyển input về DataFrame & Feature Engineering sinh các cột số, thời gian
-#     # input_df = pd.DataFrame([data.dict()])
-#     input_df = pd.DataFrame([data.model_dump()])
-#     input_df['movie_age'] = 2026 - data.start_year
-#     input_df['start_month_sin'] = np.sin(2 * np.pi * data.start_month / 12)
-#     input_df['start_month_cos'] = np.cos(2 * np.pi * data.start_month / 12)
-    
-#     age_map = {'G': 1, '13+': 2, '15+': 3, '18+': 4, 'Unknown': 0}
-#     input_df['age_rating_val'] = age_map.get(data.age_rating, 0)
-
-#     # 2. Apply Target Encoding (Lấy điểm từ encoding_maps.pkl)
-#     # def get_score(val, map_type):
-#     #     return encoding_maps[map_type].get(val, encoding_maps['global_mean'])
-
-#     # 2. Apply Target Encoding (Lấy điểm từ encoding_maps.pkl)
-#     def get_score(val, category, target_type="by_rating"):
-#         # Lấy giá trị mặc định chuẩn từ DB đã load ở startup
-#         if target_type == "by_rating":
-#             global_mean = system_configs.get("global_rating_mean", 7.43)
-#         else:
-#             global_mean = system_configs.get("global_watchers_log_mean", 7.95)
-            
-#         try:
-#             return encoding_maps[target_type][category].get(val, global_mean)
-#         except KeyError:
-#             return global_mean
-        
-#     # input_df['main_lead1_score'] = get_score(data.main_lead1, 'lead1')
-#     # input_df['main_lead2_score'] = get_score(data.main_lead2, 'lead2')
-#     # input_df['directors_score'] = get_score(data.directors, 'director')
-#     # input_df['screenwriters_score'] = get_score(data.screenwriters, 'screenwriter')
-#     input_df['main_lead1_score'] = get_score(data.main_lead1, 'main_lead1', 'by_rating')
-#     input_df['main_lead2_score'] = get_score(data.main_lead2, 'main_lead2', 'by_rating')
-#     input_df['directors_score'] = get_score(data.directors, 'directors', 'by_rating')
-#     input_df['screenwriters_score'] = get_score(data.screenwriters, 'screenwriters', 'by_rating')
-
-#     # 3. Xử lý NLP (TF-IDF & MultiLabelBinarizer)
-#     genres_list = [i.strip() for i in data.genres.split(',')]
-#     genres_encoded = mlb.transform([genres_list])
-#     tags_cleaned = clean_tags(data.tags)
-#     tags_encoded = tfidf_tag.transform([tags_cleaned])
-#     content_encoded = tfidf_content.transform([data.content])
-
-#     # 4. Gom tất cả đặc trưng thành ma trận tổng hợp X_total
-#     # Tạo DataFrame từ các mảng NLP (Genres, Tags, Content)
-#     genres_df = pd.DataFrame(genres_encoded, columns=[f"genre_{c}" for c in mlb.classes_])
-#     tags_df = pd.DataFrame(tags_encoded.toarray(), columns=[f"tag_{c}" for c in tfidf_tag.get_feature_names_out()])
-#     content_df = pd.DataFrame(content_encoded.toarray(), columns=[f"txt_{c}" for c in tfidf_content.get_feature_names_out()])
-
-#     # Gom các cột số (numeric_features)
-#     # Lưu ý: 'watchers_log', 'popularity_log', 'rating' trong code Colab là cột mục tiêu, 
-#     # nhưng khi dự đoán phim MỚI ta chưa có chúng, nên ta không đưa vào X_total.
-#     numeric_features = [
-#         'episodes', 'duration_mins', 'start_year', 'movie_age', 'age_rating_val',
-#         'main_lead1_score', 'main_lead2_score', 'directors_score', 'screenwriters_score',
-#         'start_month_sin', 'start_month_cos'
-#     ]
-#     res_numeric = input_df[numeric_features].reset_index(drop=True)
-#     # Tạo DataFrame tổng hợp X_total (bao gồm hàng trăm cột)
-#     X_total = pd.concat([res_numeric, genres_df, tags_df, content_df], axis=1)
-
-
-#     # 5. CHẠY VÒNG LẶP DỰ ĐOÁN QUA CẢ 3 MÔ HÌNH (Dùng feature_lists để lọc đúng cột cho mỗi model)
-#     # # 5.1. Dự đoán Rating
-#     # # Lọc ra đúng 137 cột mà model Rating cần
-#     # input_r = X_total[feature_lists['features_rating']]
-#     # res_rating = models_dict['Rating'].predict(input_r)[0]
-    
-#     # # 6.2. Dự đoán Watchers
-#     # # Lọc ra đúng 180 cột mà model Watchers cần
-#     # input_w = X_total[feature_lists['features_watchers']]
-#     # log_watchers = models_dict['Watchers (Log)'].predict(input_w)[0]
-#     # res_watchers = np.expm1(log_watchers) # Chuyển từ Log về số người thực
-
-#     # # 6.3. Dự đoán Popularity (Hạng)
-#     # # Lọc ra đúng 176 cột mà model Popularity cần
-#     # input_p = X_total[feature_lists['features_pop']]
-#     # log_pop = models_dict['Popularity (Log)'].predict(input_p)[0]
-#     # rank_pop = np.expm1(log_pop) # Chuyển từ Log về Hạng thực (ví dụ: Hạng 100)
-
-#     # # Xác định nhãn Popularity dựa trên mốc Threshold
-#     # def get_status(rank):
-#     #     if rank <= THRESHOLD_HOT: return "HOT (highly popular)"
-#     #     if rank <= THRESHOLD_MEDIUM: return "Medium"
-#     #     return "Thấp"
-
-#     # print(f"[PREDICT RESULT] Rating: {round(float(res_rating), 2)}, Watchers: {int(res_watchers)}, Rank: {int(rank_pop)}")
-#     # return {
-#     #     "predicted_rating": round(float(res_rating), 2),
-#     #     "predicted_watchers": int(res_watchers),
-#     #     "popularity_rank": int(rank_pop),
-#     #     "popularity_level": get_status(rank_pop)
-#     # }
-
-#     # Khởi tạo cấu hình rỗng cho 3 thuật toán so sánh
-#     comparison_results = {
-#         "SVR": {"rating": 0, "watchers": 0, "popularity_rank": 0},
-#         "Ridge": {"rating": 0, "watchers": 0, "popularity_rank": 0},
-#         "KNN": {"rating": 0, "watchers": 0, "popularity_rank": 0}
-#     }
-#     algos = ["SVR", "Ridge", "KNN"]
 #     try:
-#         # Lấy danh sách các cột đặc trưng từ feature_lists
-#         cols_r = feature_lists['features_rating']
-#         cols_w = feature_lists['features_watchers']
-#         cols_p = feature_lists['features_pop']
+#         # 1. Trích xuất chính xác danh sách cột huấn luyện thô của từng mô hình từ file pkl mới
+#         cols_rating = feature_lists.get('RATING_LINEAR_FEATURES')
+#         cols_watchers = feature_lists.get('WATCHERS_LINEAR_FEATURES')
+#         cols_pop = feature_lists.get('POPULARITY_LINEAR_FEATURES')
 
-#         for algo in algos:
-#             # --- 5.1. Dự đoán RATING ---
+#         # 2. Chuyển đổi dữ liệu & Feature Engineering cơ bản
+#         input_df = pd.DataFrame([data.model_dump()])
+#         input_df['movie_age'] = 2026 - data.start_year
+#         input_df['start_month_sin'] = np.sin(2 * np.pi * data.start_month / 12)
+#         input_df['start_month_cos'] = np.cos(2 * np.pi * data.start_month / 12)
+        
+#         age_map = {'G': 1, '13+': 2, '15+': 3, '18+': 4, 'Unknown': 0}
+#         input_df['age_rating_val'] = age_map.get(data.age_rating, 0)
+#         input_df['broadcast_season_val'] = 1  
+#         input_df['cast_count'] = 4            
+#         input_df['platform_count'] = 1        
+
+#         # 3. Hàm mã hóa Target Encoding linh hoạt theoDB
+#         def get_score(val, category, target_type):
+#             global_mean = system_configs.get("global_rating_mean", 7.43) if target_type == "by_rating" else system_configs.get("global_watchers_log_mean", 7.95)
+#             try: return encoding_maps[target_type][category].get(val, global_mean)
+#             except KeyError: return global_mean
+
+#         # 4. Trích xuất NLP (TF-IDF & MLB)
+#         genres_encoded = mlb.transform([[i.strip() for i in data.genres.split(',')]])
+#         tags_encoded = tfidf_tag.transform([clean_tags(data.tags)])
+#         content_encoded = tfidf_content.transform([data.content])
+
+#         genres_df = pd.DataFrame(genres_encoded, columns=[f"genre_{c}" for c in mlb.classes_])
+#         tags_df = pd.DataFrame(tags_encoded.toarray(), columns=[f"tag_{c}" for c in tfidf_tag.get_feature_names_out()])
+#         content_df = pd.DataFrame(content_encoded.toarray(), columns=[f"txt_{c}" for c in tfidf_content.get_feature_names_out()])
+
+#         # 5. Hàm dựng ma trận tính năng chuẩn chỉ theo cấu trúc cột riêng biệt
+#         def build_matrix(map_type, target_cols):
+#             df_temp = input_df.copy()
+            
+#             # Đọc chuẩn xác hậu tố đang có trong tập cột truyền vào
+#             col_lead1 = next(c for c in target_cols if 'main_lead1' in c or 'lead1' in c)
+#             col_lead2 = next(c for c in target_cols if 'main_lead2' in c or 'lead2' in c)
+#             col_director = next(c for c in target_cols if 'director' in c)
+#             col_writer = next(c for c in target_cols if 'writer' in c or 'screenwriter' in c)
+            
+#             df_temp[col_lead1] = get_score(data.main_lead1, 'main_lead1', map_type)
+#             df_temp[col_lead2] = get_score(data.main_lead2, 'main_lead2', map_type)
+#             df_temp[col_director] = get_score(data.directors, 'directors', map_type)
+#             df_temp[col_writer] = get_score(data.screenwriters, 'screenwriters', map_type)
+            
+#             numeric_features = [
+#                 'episodes', 'duration_mins', 'start_year', 'movie_age', 'age_rating_val',
+#                 'broadcast_season_val', 'cast_count', 'platform_count',
+#                 col_lead1, col_lead2, col_director, col_writer, 'start_month_sin', 'start_month_cos'
+#             ]
+            
+#             X_out = pd.concat([df_temp[numeric_features].reset_index(drop=True), genres_df, tags_df, content_df], axis=1)
+            
+#             # Điền bù các cột NLP thiếu bằng giá trị 0.0
+#             for col in target_cols:
+#                 if col not in X_out.columns: X_out[col] = 0.0
+#             return X_out[target_cols]
+
+#         # 6. Tiến hành tính toán dự đoán qua vòng lặp đa mô hình
+#         comparison_results = {algo: {"rating": 0, "watchers": 0, "popularity_rank": 0} for algo in ["SVR", "Ridge", "KNN"]}
+        
+#         # Tính cast_count thực tế dựa trên dữ liệu gửi lên
+#         cast_list = [data.main_lead1, data.main_lead2]
+#         input_df['cast_count'] = len([c for c in cast_list if c and c != "Unknown"])
+
+#         for algo in ["SVR", "Ridge", "KNN"]:
+#             # Dự đoán RATING (Sử dụng tập cột và map tính năng riêng biệt của bài Rating)
 #             if "RATING" in models_dict and algo in models_dict["RATING"]:
-#                 sub_r = models_dict["RATING"][algo]
-#                 X_scaled_r = sub_r["scaler"].transform(X_total[cols_r]) # Đi qua bộ Scaler riêng
-#                 pred_r = sub_r["model"].predict(X_scaled_r)[0]
-#                 comparison_results[algo]["rating"] = round(float(pred_r), 2)
+#                 X_r = build_matrix(map_type='by_watchers', target_cols=feature_lists["KNN_FEATURES"]["RATING"] if algo == "KNN" else cols_rating)
+#                 sub = models_dict["RATING"][algo]
+#                 comparison_results[algo]["rating"] = round(float(sub["model"].predict(sub["scaler"].transform(X_r))[0]), 2)
 
-#             # --- 5.2. Dự đoán WATCHERS (LOG) ---
+#             # Dự đoán WATCHERS
 #             if "WATCHERS_LOG" in models_dict and algo in models_dict["WATCHERS_LOG"]:
-#                 sub_w = models_dict["WATCHERS_LOG"][algo]
-#                 X_scaled_w = sub_w["scaler"].transform(X_total[cols_w]) # Đi qua bộ Scaler riêng
-#                 pred_w_log = sub_w["model"].predict(X_scaled_w)[0]
-#                 comparison_results[algo]["watchers"] = int(np.expm1(pred_w_log)) # Giải nén Log về số thực
+#                 X_w = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["WATCHERS_LOG"] if algo == "KNN" else cols_watchers)
+#                 sub = models_dict["WATCHERS_LOG"][algo]
+#                 comparison_results[algo]["watchers"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_w))[0]))
 
-#             # --- 5.3. Dự đoán POPULARITY (LOG) ---
+#             # Dự đoán POPULARITY
 #             if "POPULARITY_LOG" in models_dict and algo in models_dict["POPULARITY_LOG"]:
-#                 sub_p = models_dict["POPULARITY_LOG"][algo]
-#                 X_scaled_p = sub_p["scaler"].transform(X_total[cols_p]) # Đi qua bộ Scaler riêng
-#                 pred_p_log = sub_p["model"].predict(X_scaled_p)[0]
-#                 comparison_results[algo]["popularity_rank"] = int(np.expm1(pred_p_log)) # Giải nén Log về Hạng thực
+#                 X_p = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["POPULARITY_LOG"] if algo == "KNN" else cols_pop)
+#                 sub = models_dict["POPULARITY_LOG"][algo]
+#                 comparison_results[algo]["popularity_rank"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_p))[0]))
+
+#         return {"title": data.title, "predictions": comparison_results}
 
 #     except Exception as e:
-#         print(f"[PREDICT ERROR] Lỗi tính toán mô hình: {e}")
-#         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+#         print(f"[CRITICAL ERROR]: {str(e)}")
+#         traceback.print_exc()
+#         raise HTTPException(status_code=500, detail=f"Pipeline Error: {str(e)}")
 
-#     print(f"[PREDICT SUCCESS] Đã xuất kết quả so sánh đa mô hình cho phim: {data.title}")
-#     return {
-#         "title": data.title,
-#         "predictions": comparison_results
-#     }
 
+
+# -------- TẠO API LOGIC DỰ ĐOÁN & SO SÁNH 3 MÔ HÌNH --------
 @app.post("/predict")
 async def predict_kdrama(data: MovieInput):
     try:
-        # 1. Trích xuất chính xác danh sách cột huấn luyện thô của từng mô hình từ file pkl mới
+        # 1. Trích xuất chính xác danh sách cột huấn luyện thô của từng mô hình từ file pkl
         cols_rating = feature_lists.get('RATING_LINEAR_FEATURES')
         cols_watchers = feature_lists.get('WATCHERS_LINEAR_FEATURES')
         cols_pop = feature_lists.get('POPULARITY_LINEAR_FEATURES')
 
-        # 2. Chuyển đổi dữ liệu & Feature Engineering cơ bản
+        # 2. Chuyển đổi dữ liệu & Feature Engineering cơ bản (Khớp hoàn toàn Colab)
         input_df = pd.DataFrame([data.model_dump()])
         input_df['movie_age'] = 2026 - data.start_year
         input_df['start_month_sin'] = np.sin(2 * np.pi * data.start_month / 12)
         input_df['start_month_cos'] = np.cos(2 * np.pi * data.start_month / 12)
         
-        age_map = {'G': 1, '13+': 2, '15+': 3, '18+': 4, 'Unknown': 0}
+        # Mã hóa độ tuổi (Age Rating)
+        age_map = {'G': 1, '13+': 2, '15+': 3, '18+': 4, 'Unknown': 0, 'Not Yet Rated': 0}
         input_df['age_rating_val'] = age_map.get(data.age_rating, 0)
-        input_df['broadcast_season_val'] = 1  
-        input_df['cast_count'] = 4            
-        input_df['platform_count'] = 1        
+        
+        # Mã hóa mùa (Broadcast Season) - Thay vì gán cứng bằng 1, hãy chuyển đổi từ text nếu frontend gửi lên
+        # Nếu frontend gửi dạng chữ (spring, summer...), hãy map qua season_map, nếu gửi số thì giữ nguyên
+        season_map = {"spring": 1, "summer": 2, "fall": 3, "winter": 4}
+        # if isinstance(data.broadcast_season, str):
+        #     input_df['broadcast_season_val'] = season_map.get(data.broadcast_season.lower(), 0)
+        # else:
+        #     input_df['broadcast_season_val'] = data.broadcast_season if data.broadcast_season else 0
+        # --- TỰ ĐỘNG SUY RA MÙA (BROADCAST SEASON) TỪ THÁNG PHÁT HÀNH (GIỐNG COLAB) ---
+        month = int(data.start_month)
 
-        # 3. Hàm mã hóa Target Encoding linh hoạt theoDB
+        if month in [3, 4, 5]:
+            input_df['broadcast_season_val'] = 1  # Spring
+        elif month in [6, 7, 8]:
+            input_df['broadcast_season_val'] = 2  # Summer
+        elif month in [9, 10, 11]:
+            input_df['broadcast_season_val'] = 3  # Fall
+        else:
+            input_df['broadcast_season_val'] = 4  # Winter (Tháng 12, 1, 2)
+
+        # Tính toán cast_count động thực tế dựa trên dữ liệu gửi lên
+        cast_list = [data.main_lead1, data.main_lead2]
+        input_df['cast_count'] = len([c for c in cast_list if c and c != "Unknown"])
+        input_df['platform_count'] = 1  # Giữ nguyên cấu hình hệ thống tạm thời
+
+        # --- BƯỚC BỔ SUNG: XỬ LÝ ĐẶC TRƯNG NHÓM (BINNING) DÀNH RIÊNG CHO KNN ---
+        episodes_val = int(data.episodes)
+        if episodes_val <= 4: input_df['episodes_group_val'] = 1       # Short
+        elif episodes_val <= 20: input_df['episodes_group_val'] = 2    # Medium
+        else: input_df['episodes_group_val'] = 3                       # Long
+
+        duration_val = int(data.duration_mins)
+        if duration_val <= 45: input_df['duration_groups_val'] = 1     # Short Movie
+        elif duration_val <= 90: input_df['duration_groups_val'] = 2   # Standard
+        else: input_df['duration_groups_val'] = 3                      # Long Series
+
+
+        # 3. Hàm mã hóa Target Encoding linh hoạt theo DB
         def get_score(val, category, target_type):
             global_mean = system_configs.get("global_rating_mean", 7.43) if target_type == "by_rating" else system_configs.get("global_watchers_log_mean", 7.95)
             try: return encoding_maps[target_type][category].get(val, global_mean)
@@ -322,8 +334,9 @@ async def predict_kdrama(data: MovieInput):
         tags_df = pd.DataFrame(tags_encoded.toarray(), columns=[f"tag_{c}" for c in tfidf_tag.get_feature_names_out()])
         content_df = pd.DataFrame(content_encoded.toarray(), columns=[f"txt_{c}" for c in tfidf_content.get_feature_names_out()])
 
-        # 5. Hàm dựng ma trận tính năng chuẩn chỉ theo cấu trúc cột riêng biệt
-        def build_matrix(map_type, target_cols):
+
+        # 5. Hàm dựng ma trận tính năng chuẩn chỉ (Đã sửa lỗi phân tách KNN và Linear riêng biệt)
+        def build_matrix(map_type, target_cols, is_knn=False):
             df_temp = input_df.copy()
             
             # Đọc chuẩn xác hậu tố đang có trong tập cột truyền vào
@@ -337,38 +350,54 @@ async def predict_kdrama(data: MovieInput):
             df_temp[col_director] = get_score(data.directors, 'directors', map_type)
             df_temp[col_writer] = get_score(data.screenwriters, 'screenwriters', map_type)
             
-            numeric_features = [
-                'episodes', 'duration_mins', 'start_year', 'movie_age', 'age_rating_val',
-                'broadcast_season_val', 'cast_count', 'platform_count',
-                col_lead1, col_lead2, col_director, col_writer, 'start_month_sin', 'start_month_cos'
-            ]
+            # RẼ NHÁNH ĐẶC TRƯNG SỐ THEO ĐÚNG HÀM TRÊN COLAB
+            if is_knn:
+                # Cấu trúc của hàm `finalize_df_for_knr` trong Colab
+                numeric_features = [
+                    'episodes_group_val', 'duration_groups_val', 'movie_age', 'age_rating_val',
+                    'broadcast_season_val', 'cast_count', 'platform_count', 'start_month_sin', 'start_month_cos',
+                    col_lead1, col_lead2, col_director, col_writer
+                ]
+            else:
+                # Cấu trúc của hàm `finalize_df_for_linear_svr` trong Colab
+                numeric_features = [
+                    'episodes', 'duration_mins', 'start_year', 'movie_age', 'age_rating_val',
+                    'broadcast_season_val', 'cast_count', 'platform_count', 'start_month_sin', 'start_month_cos',
+                    col_lead1, col_lead2, col_director, col_writer
+                ]
             
             X_out = pd.concat([df_temp[numeric_features].reset_index(drop=True), genres_df, tags_df, content_df], axis=1)
             
-            # Điền bù các cột NLP thiếu bằng giá trị 0.0
+            # Điền bù các cột NLP thiếu bằng giá trị 0.0 và xếp chuẩn thứ tự cột như lúc Train
             for col in target_cols:
                 if col not in X_out.columns: X_out[col] = 0.0
             return X_out[target_cols]
+
 
         # 6. Tiến hành tính toán dự đoán qua vòng lặp đa mô hình
         comparison_results = {algo: {"rating": 0, "watchers": 0, "popularity_rank": 0} for algo in ["SVR", "Ridge", "KNN"]}
         
         for algo in ["SVR", "Ridge", "KNN"]:
-            # Dự đoán RATING (Sử dụng tập cột và map tính năng riêng biệt của bài Rating)
+            is_knn_flag = (algo == "KNN")
+
+            # 6.1. Dự đoán RATING
             if "RATING" in models_dict and algo in models_dict["RATING"]:
-                X_r = build_matrix(map_type='by_watchers', target_cols=feature_lists["KNN_FEATURES"]["RATING"] if algo == "KNN" else cols_rating)
+                target_columns = feature_lists["KNN_FEATURES"]["RATING"] if is_knn_flag else cols_rating
+                X_r = build_matrix(map_type='by_watchers', target_cols=target_columns, is_knn=is_knn_flag)
                 sub = models_dict["RATING"][algo]
                 comparison_results[algo]["rating"] = round(float(sub["model"].predict(sub["scaler"].transform(X_r))[0]), 2)
 
-            # Dự đoán WATCHERS
+            # 6.2. Dự đoán WATCHERS
             if "WATCHERS_LOG" in models_dict and algo in models_dict["WATCHERS_LOG"]:
-                X_w = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["WATCHERS_LOG"] if algo == "KNN" else cols_watchers)
+                target_columns = feature_lists["KNN_FEATURES"]["WATCHERS_LOG"] if is_knn_flag else cols_watchers
+                X_w = build_matrix(map_type='by_rating', target_cols=target_columns, is_knn=is_knn_flag)
                 sub = models_dict["WATCHERS_LOG"][algo]
                 comparison_results[algo]["watchers"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_w))[0]))
 
-            # Dự đoán POPULARITY
+            # 6.3. Dự đoán POPULARITY
             if "POPULARITY_LOG" in models_dict and algo in models_dict["POPULARITY_LOG"]:
-                X_p = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["POPULARITY_LOG"] if algo == "KNN" else cols_pop)
+                target_columns = feature_lists["KNN_FEATURES"]["POPULARITY_LOG"] if is_knn_flag else cols_pop
+                X_p = build_matrix(map_type='by_rating', target_cols=target_columns, is_knn=is_knn_flag)
                 sub = models_dict["POPULARITY_LOG"][algo]
                 comparison_results[algo]["popularity_rank"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_p))[0]))
 
@@ -378,6 +407,7 @@ async def predict_kdrama(data: MovieInput):
         print(f"[CRITICAL ERROR]: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Pipeline Error: {str(e)}")
+    
 
 # -------- API Thống kê dữ liệu DB --------
 @app.get("/api/stats")
@@ -455,7 +485,7 @@ async def save_onboarding(data: OnboardingInput):
 async def get_recommendations(user_id: int, top_n: int = 10):
     print(f"\n[RECOMMENDATION] Nhận yêu cầu tải danh sách gợi ý cho User ID: {user_id}")
     
-    # Gọi hàm xử lý tính điểm toán học từ file recommend_service.py của bạn
+    # Gọi hàm xử lý tính điểm toán học từ file recommend_service.py
     recs = get_recommendations_for_user(user_id, engine, top_n=top_n)
     
     if recs is None:
@@ -524,6 +554,118 @@ async def add_comment(data: CommentInput):
     except Exception as e:
         print(f"[COMMENT ERROR] Lỗi: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/auth/signup")
+def signup_user(payload: SignupRequest):
+    username = payload.name
+    email = payload.email
+    password = payload.password
+
+    # Sử dụng kết nối Database của SQLAlchemy có sẵn trong dự án của bạn
+    with engine.begin() as connection:
+        # 1. Kiểm tra xem email đã tồn tại hay chưa
+        check_query = text("SELECT email FROM user_data.accounts WHERE email = :email")
+        existing_user = connection.execute(check_query, {"email": email}).fetchone()
+        
+        if existing_user:
+            raise HTTPException(status_code=400, detail="Email already exists")
+
+        # 2. Mã hóa mật khẩu bằng Bcrypt
+        # password_hash = pwd_context.hash(password)
+        # 2. Mã hóa mật khẩu bằng Bcrypt gốc
+        # Chuyển chuỗi chữ (str) sang dạng bytes trước khi băm
+        password_bytes = password.encode('utf-8') 
+        salt = bcrypt.gensalt()
+        # Tiến hành hash mật khẩu và ép kiểu ngược lại về chuỗi str để lưu DB
+        password_hash = bcrypt.hashpw(password_bytes, salt).decode('utf-8')
+
+        # 3. Thêm bản ghi mới vào bảng accounts (khởi tạo mảng trống cho sở thích)
+        insert_query = text("""
+            INSERT INTO user_data.accounts (
+                username, email, password_hash, fav_genres, created_at, fav_actors, fav_tags, user_code
+            ) 
+            VALUES (:username, :email, :password_hash, '{}', NOW(), '{}', '{}', '') 
+            RETURNING user_id
+        """)
+        
+        result = connection.execute(insert_query, {
+            "username": username,
+            "email": email,
+            "password_hash": password_hash
+        }).fetchone()
+        
+        new_user_id = result[0]
+
+        # 4. Tự động sinh mã user_code định dạng U0007, U0008... và cập nhật lại
+        user_code = f"U{str(new_user_id).zfill(4)}"
+        
+        update_query = text("UPDATE user_data.accounts SET user_code = :user_code WHERE user_id = :user_id")
+        connection.execute(update_query, {"user_code": user_code, "user_id": new_user_id})
+
+    return {
+        "success": True, 
+        "message": "Account created successfully", 
+        "user_id": new_user_id, 
+        "user_code": user_code
+    }
+
+
+@app.post("/api/auth/login")
+async def login_user(data: LoginInput):
+    print(f"\n[LOGIN] Tiếp nhận yêu cầu đăng nhập từ Email: {data.email}")
+    
+    try:
+        with engine.begin() as connection:
+            # Tìm thông tin người dùng dựa trên email trong DB
+            query = text("""
+                SELECT user_id, password_hash, username 
+                FROM user_data.accounts 
+                WHERE email = :email
+            """)
+            user = connection.execute(query, {"email": data.email}).mappings().first()
+            
+            # Nếu không tìm thấy Email
+            if not user:
+                print(" -> Đăng nhập thất bại: Không tìm thấy Email này.")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, 
+                    detail="Invalid email or password. Please try again."
+                )
+                
+            # Xác thực mật khẩu băm (Sử dụng bcrypt độc lập chuẩn)
+            password_bytes = data.password.encode('utf-8')
+            stored_hash_bytes = user["password_hash"].encode('utf-8')
+            
+            if not bcrypt.checkpw(password_bytes, stored_hash_bytes):
+                print(" -> Đăng nhập thất bại: Sai mật khẩu.")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED, 
+                    detail="Invalid email or password. Please try again."
+                )
+                
+            # Kiểm tra trạng thái Onboarding: Đã tồn tại cấu hình sở thích chưa
+            profile_query = text("""
+                SELECT 1 FROM user_data.user_profiles WHERE user_id = :user_id
+            """)
+            has_profile = connection.execute(profile_query, {"user_id": user["user_id"]}).first()
+            onboarded = True if has_profile else False
+            
+            print(f" -> Đăng nhập thành công! User ID: {user['user_id']} | Onboarded: {onboarded}")
+            
+            return {
+                "status": "success",
+                "user_id": user["user_id"],
+                "username": user["username"],
+                "onboarded": onboarded,
+                "message": "Login successful!"
+            }
+            
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception as e:
+        print(f"[LOGIN ERROR] Lỗi hệ thống: {e}")
+        raise HTTPException(status_code=500, detail="Internal Server Error during login.")
 
 
 if __name__ == "__main__":
