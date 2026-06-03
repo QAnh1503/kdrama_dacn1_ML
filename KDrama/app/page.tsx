@@ -11,11 +11,11 @@ import { Layers, Star, TrendingUp, HelpCircle } from "lucide-react"
 
 const genres = [
   "Romance", "Thriller", "Melodrama", "Fantasy", "Historical", 
-  "Comedy", "Action", "Mystery", "Horror", "Slice of Life"
+  "Comedy", "Action", "Mystery", "Horror", "Slice of Life", "Drama", "Supernatural","Music"
 ]
 
 const platforms = [
-  "Netflix", "tvN", "JTBC", "SBS", "KBS", "MBC", "Disney+", "Viki"
+  "Netflix", "tvN", "jTBC", "SBS", "KBS2", "MBC", "Disney+", "Viki", "SBN", "Naver TV Cast", "OCN"
 ]
 
 // interface PredictionResult {
@@ -95,21 +95,6 @@ export default function PredictPage() {
     }, []);
   
       
-  // const [formData, setFormData] = useState({
-  //   dramaName: "",
-  //   genre: [] as string[],
-  //   platform: "",
-  //   actors: "",
-  //   directors: "",
-  //   screenwriters: "",
-  //   tags: "",
-  //   content: "",
-  //   episodes: "1",
-  //   duration: "60",
-  //   year: new Date().getFullYear().toString(),
-  //   month: "1",
-  //   ageRating: "15+"
-  // })
 
   // SẴN DỮ LIỆU MẪU ĐỂ BẠN TEST NHANH
   // const [formData, setFormData] = useState({
