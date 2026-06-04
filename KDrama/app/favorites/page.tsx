@@ -78,7 +78,7 @@ interface Drama {
   episodes: number
   rating: number
   genre: string
-  imageUrl: string
+  image_url: string
   description: string
   director: string
   cast: typeof castMembers
@@ -254,7 +254,7 @@ export default function FavoritesPage() {
               {/* Banner Image */}
               <div className="relative aspect-video w-full">
                 <Image
-                  src={selectedDrama.imageUrl}
+                  src={selectedDrama.image_url}
                   alt={selectedDrama.title}
                   fill
                   className="object-cover"
