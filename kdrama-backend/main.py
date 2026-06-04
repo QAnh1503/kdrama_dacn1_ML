@@ -21,11 +21,14 @@ import bcrypt
 
 # Cấu hình kết nối Postgres
 DATABASE_URL = "postgresql://postgres:123456@localhost:5432/kdrama"
+
+# DATABASE_URL = "postgresql://postgres:123456@localhost:5432/kdrama_dacn1_db"
 engine = create_engine(DATABASE_URL)
 
 def get_db_connection():
     return psycopg2.connect(
         host="localhost", 
+        # database="kdrama_dacn1_db", 
         database="kdrama", 
         user="postgres", 
         password="123456"
