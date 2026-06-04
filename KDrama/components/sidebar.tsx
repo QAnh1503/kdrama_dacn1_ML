@@ -17,7 +17,7 @@ const navItems = [
   { icon: Layers, label: "Predict", href: "/" },
   { icon: BarChart3, label: "Charts", href: "/charts" },
   { icon: Film, label: "Browse", href: "/browse" },
-  { icon: Heart, label: "Favorites", href: "/favorites", requiresAuth: true },
+  { icon: Heart, label: "Favorites", href: "/favorites", requiresAuth: false },
   { icon: Info, label: "About", href: "/about" },
   { icon: Settings, label: "Settings", href: "/settings" },
 ]

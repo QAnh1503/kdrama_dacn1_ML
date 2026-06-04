@@ -18,37 +18,38 @@ export default function LoginPage() {
   
   // const { login } = useAuth()
   // Thêm hoặc sửa lại hàm login trong AuthContext của bạn:
-  const login = async (email: string, password: string): Promise<boolean> => {
-    try {
-      const response = await fetch("http://localhost:8000/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
+  // const login = async (email: string, password: string): Promise<boolean> => {
+  //   try {
+  //     const response = await fetch("http://localhost:8000/api/auth/login", {
+  //       method: "POST",
+  //       headers: {
+  //         "Content-Type": "application/json",
+  //       },
+  //       body: JSON.stringify({ email, password }),
+  //     });
 
-      const data = await response.json();
+  //     const data = await response.json();
 
-      if (response.ok && data.status === "success") {
-        // Lưu thông tin người dùng vào bộ nhớ cục bộ
-        localStorage.setItem("user_id", data.user_id.toString());
-        localStorage.setItem("username", data.username);
+  //     if (response.ok && data.status === "success") {
+  //       // Lưu thông tin người dùng vào bộ nhớ cục bộ
+  //       localStorage.setItem("user_id", data.user_id.toString());
+  //       localStorage.setItem("username", data.username);
         
-        // Lưu thêm cờ trạng thái kiểm tra đã làm onboarding chưa
-        localStorage.setItem("user_onboarded", data.onboarded.toString());
+  //       // Lưu thêm cờ trạng thái kiểm tra đã làm onboarding chưa
+  //       localStorage.setItem("user_onboarded", data.onboarded.toString());
         
-        // Bạn có thể cập nhật State User chung của Context tại đây (nếu có)
-        // setUser({ id: data.user_id, username: data.username }); 
+  //       // Bạn có thể cập nhật State User chung của Context tại đây (nếu có)
+  //       // setUser({ id: data.user_id, username: data.username }); 
         
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Authentication server error:", error);
-      return false;
-    }
-  };
+  //       return true;
+  //     }
+  //     return false;
+  //   } catch (error) {
+  //     console.error("Authentication server error:", error);
+  //     return false;
+  //   }
+  // };
+  const { login } = useAuth()
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {

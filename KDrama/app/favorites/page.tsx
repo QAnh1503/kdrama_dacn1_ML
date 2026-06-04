@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Footer } from "@/components/footer"
 import { Star, Heart, Trash2, Play, X, MessageCircle } from "lucide-react"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle ,DialogDescription} from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { useAuth } from "@/contexts/auth-context"
 
@@ -93,8 +93,11 @@ export default function FavoritesPage() {
   const [selectedDrama, setSelectedDrama] = useState<Drama | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
+  // ✨ CODE MỚI: Chỉ chuyển hướng khi hệ thống ĐÃ TẢI XONG (isLoading === false) và chắc chắn KHÔNG CÓ USER
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (isLoading) return; // Nếu đang load dữ liệu hộ chiếu user thì đợi, không đá đi đâu hết
+    
+    if (!user) {
       router.push("/login")
     }
   }, [user, isLoading, router])
@@ -111,8 +114,24 @@ export default function FavoritesPage() {
     return null
   }
 
-  const favoriteDramas = allDramas.filter(drama => user.likedDramas.includes(drama.id))
+  console.log("likedDramas:", user.likedDramas)
+  console.log("allDramas:", allDramas.map(d => d.id))
+  
 
+  // const favoriteDramas = allDramas.filter(drama => user.likedDramas.includes(drama.id))
+  // Thay thế bằng dòng ép kiểu an toàn tuyệt đối này:
+  // const favoriteDramas = allDramas.filter(drama => 
+  //   user.likedDramas.some(likedId => likedId.toString() === drama.id.toString())
+  // )
+  // console.log("favoriteDramas:", favoriteDramas.map(d => d.id))
+
+  const favoriteDramas = user.favoriteDramas || []
+  console.log(
+    "Missing IDs:",
+    user.likedDramas.filter(
+      id => !allDramas.some(drama => drama.id === id)
+    )
+  )
   const handleDramaClick = (drama: Drama) => {
     setSelectedDrama(drama)
     setIsDialogOpen(true)
@@ -169,6 +188,7 @@ export default function FavoritesPage() {
                       src={drama.imageUrl}
                       alt={drama.title}
                       fill
+                      priority
                       className="object-cover transition-all group-hover:scale-105"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -223,6 +243,13 @@ export default function FavoritesPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] bg-card border-border p-0 overflow-hidden">
           {selectedDrama && (
+            <>
+            {/* Thêm DialogTitle và DialogDescription vào đây để dập tắt cảnh báo */}
+            <div className="sr-only"> {/* sr-only giúp ẩn đi trên màn hình nhưng trình duyệt vẫn đọc được */}
+              <DialogTitle>{selectedDrama.title}</DialogTitle>
+              <DialogDescription>Details and reviews for {selectedDrama.title}</DialogDescription>
+            </div>
+
             <ScrollArea className="max-h-[90vh]">
               {/* Banner Image */}
               <div className="relative aspect-video w-full">
@@ -275,7 +302,7 @@ export default function FavoritesPage() {
                 </p>
 
                 {/* Action Buttons */}
-                <div className="flex gap-3">
+                {/* <div className="flex gap-3">
                   <Button 
                     variant={isLiked(selectedDrama.id) ? "default" : "outline"}
                     onClick={() => toggleLikeDrama(selectedDrama.id)}
@@ -284,7 +311,21 @@ export default function FavoritesPage() {
                     <Heart className={`mr-2 h-4 w-4 ${isLiked(selectedDrama.id) ? "fill-current" : ""}`} />
                     {isLiked(selectedDrama.id) ? "Liked" : "Like"}
                   </Button>
-                </div>
+                </div> */}
+                <Button 
+                  variant={isLiked(selectedDrama.id) ? "default" : "outline"}
+                  onClick={() => {
+                    // Nếu phim đang được thích -> bấm vào nghĩa là Unlike -> Đóng luôn dialog rồi xử lý
+                    if (isLiked(selectedDrama.id)) {
+                      setIsDialogOpen(false)
+                    }
+                    toggleLikeDrama(selectedDrama.id)
+                  }}
+                  className={isLiked(selectedDrama.id) ? "bg-primary" : ""}
+                >
+                  <Heart className={`mr-2 h-4 w-4 ${isLiked(selectedDrama.id) ? "fill-current" : ""}`} />
+                  {isLiked(selectedDrama.id) ? "Liked" : "Like"}
+                </Button>
 
                 {/* Trailer Section */}
                 <div>
@@ -348,6 +389,7 @@ export default function FavoritesPage() {
                 </div>
               </div>
             </ScrollArea>
+            </>
           )}
         </DialogContent>
       </Dialog>

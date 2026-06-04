@@ -522,6 +522,7 @@ import { Search, Play, Star, X, Heart, MessageCircle } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Drama } from "@/components/types/drama"
+import { useAuth } from "@/contexts/auth-context"
 
 const genres = ["All Genres", "Romance", "Thriller", "Melodrama", "Fantasy", "Historical", "Comedy", "Action", "Mystery"]
 const years = ["All Years", "2024", "2023", "2022", "2021", "2020", "2019", "2018", "2017", "2016", "2015"]
@@ -559,6 +560,7 @@ export default function BrowsePage() {
   
   // Trạng thái mảng lưu trữ danh sách các ID phim đã thích của User này
   const [likedDramaIds, setLikedDramaIds] = useState<number[]>([])
+  const { user, toggleLikeDrama, isLiked } = useAuth()
 
   // Hàm biến đổi dữ liệu Backend -> cấu trúc Frontend hiển thị
   const mapBackendToFrontend = (backendData: any[]): Drama[] => {
@@ -857,7 +859,7 @@ export default function BrowsePage() {
                   </section>
 
                   {/* Nút Like kết nối Backend */}
-                  <div className="flex gap-3">
+                  {/* <div className="flex gap-3">
                     <Button 
                       variant={likedDramaIds.includes(selectedDrama.id) ? "default" : "outline"}
                       onClick={handleLike}
@@ -869,6 +871,25 @@ export default function BrowsePage() {
                     </Button>
                     {!currentUserId && (
                       <span className="text-sm text-destructive self-center font-medium">⚠️ Please login to like this drama</span>
+                    )}
+                  </div> */}
+                  {/* Nút Like kết nối đồng bộ qua AuthContext */}
+                  <div className="flex gap-3">
+                    <Button 
+                      variant={isLiked(selectedDrama.id) ? "default" : "outline"}
+                      // onClick={() => toggleLikeDrama(selectedDrama.id)}
+                      onClick={() => toggleLikeDrama(selectedDrama)}
+                      disabled={!user} // Dùng trực tiếp object user từ Context
+                      className={isLiked(selectedDrama.id) ? "bg-primary" : ""}
+                    >
+                      <Heart className={`mr-2 h-4 w-4 ${isLiked(selectedDrama.id) ? "fill-current" : ""}`} />
+                      {isLiked(selectedDrama.id) ? "Liked" : "Like"}
+                    </Button>
+                    
+                    {!user && (
+                      <span className="text-sm text-destructive self-center font-medium">
+                        ⚠️ Please login to like this drama
+                      </span>
                     )}
                   </div>
 
