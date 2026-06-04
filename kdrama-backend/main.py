@@ -168,103 +168,6 @@ def get_metadata():
         return {"error": str(e), "actors": [], "directors": [], "screenwriters": []}
 
 
-# -------- TẠO API LOGIC DỰ ĐOÁN & SO SÁNH 3 MÔ HÌNH --------
-# @app.post("/predict")
-# async def predict_kdrama(data: MovieInput):
-#     try:
-#         # 1. Trích xuất chính xác danh sách cột huấn luyện thô của từng mô hình từ file pkl mới
-#         cols_rating = feature_lists.get('RATING_LINEAR_FEATURES')
-#         cols_watchers = feature_lists.get('WATCHERS_LINEAR_FEATURES')
-#         cols_pop = feature_lists.get('POPULARITY_LINEAR_FEATURES')
-
-#         # 2. Chuyển đổi dữ liệu & Feature Engineering cơ bản
-#         input_df = pd.DataFrame([data.model_dump()])
-#         input_df['movie_age'] = 2026 - data.start_year
-#         input_df['start_month_sin'] = np.sin(2 * np.pi * data.start_month / 12)
-#         input_df['start_month_cos'] = np.cos(2 * np.pi * data.start_month / 12)
-        
-#         age_map = {'G': 1, '13+': 2, '15+': 3, '18+': 4, 'Unknown': 0}
-#         input_df['age_rating_val'] = age_map.get(data.age_rating, 0)
-#         input_df['broadcast_season_val'] = 1  
-#         input_df['cast_count'] = 4            
-#         input_df['platform_count'] = 1        
-
-#         # 3. Hàm mã hóa Target Encoding linh hoạt theoDB
-#         def get_score(val, category, target_type):
-#             global_mean = system_configs.get("global_rating_mean", 7.43) if target_type == "by_rating" else system_configs.get("global_watchers_log_mean", 7.95)
-#             try: return encoding_maps[target_type][category].get(val, global_mean)
-#             except KeyError: return global_mean
-
-#         # 4. Trích xuất NLP (TF-IDF & MLB)
-#         genres_encoded = mlb.transform([[i.strip() for i in data.genres.split(',')]])
-#         tags_encoded = tfidf_tag.transform([clean_tags(data.tags)])
-#         content_encoded = tfidf_content.transform([data.content])
-
-#         genres_df = pd.DataFrame(genres_encoded, columns=[f"genre_{c}" for c in mlb.classes_])
-#         tags_df = pd.DataFrame(tags_encoded.toarray(), columns=[f"tag_{c}" for c in tfidf_tag.get_feature_names_out()])
-#         content_df = pd.DataFrame(content_encoded.toarray(), columns=[f"txt_{c}" for c in tfidf_content.get_feature_names_out()])
-
-#         # 5. Hàm dựng ma trận tính năng chuẩn chỉ theo cấu trúc cột riêng biệt
-#         def build_matrix(map_type, target_cols):
-#             df_temp = input_df.copy()
-            
-#             # Đọc chuẩn xác hậu tố đang có trong tập cột truyền vào
-#             col_lead1 = next(c for c in target_cols if 'main_lead1' in c or 'lead1' in c)
-#             col_lead2 = next(c for c in target_cols if 'main_lead2' in c or 'lead2' in c)
-#             col_director = next(c for c in target_cols if 'director' in c)
-#             col_writer = next(c for c in target_cols if 'writer' in c or 'screenwriter' in c)
-            
-#             df_temp[col_lead1] = get_score(data.main_lead1, 'main_lead1', map_type)
-#             df_temp[col_lead2] = get_score(data.main_lead2, 'main_lead2', map_type)
-#             df_temp[col_director] = get_score(data.directors, 'directors', map_type)
-#             df_temp[col_writer] = get_score(data.screenwriters, 'screenwriters', map_type)
-            
-#             numeric_features = [
-#                 'episodes', 'duration_mins', 'start_year', 'movie_age', 'age_rating_val',
-#                 'broadcast_season_val', 'cast_count', 'platform_count',
-#                 col_lead1, col_lead2, col_director, col_writer, 'start_month_sin', 'start_month_cos'
-#             ]
-            
-#             X_out = pd.concat([df_temp[numeric_features].reset_index(drop=True), genres_df, tags_df, content_df], axis=1)
-            
-#             # Điền bù các cột NLP thiếu bằng giá trị 0.0
-#             for col in target_cols:
-#                 if col not in X_out.columns: X_out[col] = 0.0
-#             return X_out[target_cols]
-
-#         # 6. Tiến hành tính toán dự đoán qua vòng lặp đa mô hình
-#         comparison_results = {algo: {"rating": 0, "watchers": 0, "popularity_rank": 0} for algo in ["SVR", "Ridge", "KNN"]}
-        
-#         # Tính cast_count thực tế dựa trên dữ liệu gửi lên
-#         cast_list = [data.main_lead1, data.main_lead2]
-#         input_df['cast_count'] = len([c for c in cast_list if c and c != "Unknown"])
-
-#         for algo in ["SVR", "Ridge", "KNN"]:
-#             # Dự đoán RATING (Sử dụng tập cột và map tính năng riêng biệt của bài Rating)
-#             if "RATING" in models_dict and algo in models_dict["RATING"]:
-#                 X_r = build_matrix(map_type='by_watchers', target_cols=feature_lists["KNN_FEATURES"]["RATING"] if algo == "KNN" else cols_rating)
-#                 sub = models_dict["RATING"][algo]
-#                 comparison_results[algo]["rating"] = round(float(sub["model"].predict(sub["scaler"].transform(X_r))[0]), 2)
-
-#             # Dự đoán WATCHERS
-#             if "WATCHERS_LOG" in models_dict and algo in models_dict["WATCHERS_LOG"]:
-#                 X_w = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["WATCHERS_LOG"] if algo == "KNN" else cols_watchers)
-#                 sub = models_dict["WATCHERS_LOG"][algo]
-#                 comparison_results[algo]["watchers"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_w))[0]))
-
-#             # Dự đoán POPULARITY
-#             if "POPULARITY_LOG" in models_dict and algo in models_dict["POPULARITY_LOG"]:
-#                 X_p = build_matrix(map_type='by_rating', target_cols=feature_lists["KNN_FEATURES"]["POPULARITY_LOG"] if algo == "KNN" else cols_pop)
-#                 sub = models_dict["POPULARITY_LOG"][algo]
-#                 comparison_results[algo]["popularity_rank"] = int(np.expm1(sub["model"].predict(sub["scaler"].transform(X_p))[0]))
-
-#         return {"title": data.title, "predictions": comparison_results}
-
-#     except Exception as e:
-#         print(f"[CRITICAL ERROR]: {str(e)}")
-#         traceback.print_exc()
-#         raise HTTPException(status_code=500, detail=f"Pipeline Error: {str(e)}")
-
 
 
 # -------- TẠO API LOGIC DỰ ĐOÁN & SO SÁNH 3 MÔ HÌNH --------
@@ -355,7 +258,7 @@ async def predict_kdrama(data: MovieInput):
             
             # RẼ NHÁNH ĐẶC TRƯNG SỐ THEO ĐÚNG HÀM TRÊN COLAB
             if is_knn:
-                # Cấu trúc của hàm `finalize_df_for_knr` trong Colab
+                # Cấu trúc của hàm `finalize_df_for_knn` trong Colab
                 numeric_features = [
                     'episodes_group_val', 'duration_groups_val', 'movie_age', 'age_rating_val',
                     'broadcast_season_val', 'cast_count', 'platform_count', 'start_month_sin', 'start_month_cos',
